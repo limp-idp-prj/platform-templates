@@ -1,0 +1,9 @@
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: platform-templates
+  description: Шаблоны сервисов платформы
+spec:
+  targets:
+    - ./nodejs-express/template.yaml
+    - ./python-fastapi/template.yaml

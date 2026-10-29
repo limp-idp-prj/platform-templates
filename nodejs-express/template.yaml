@@ -1,0 +1,84 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nodejs-express
+  title: Node.js (Express)
+  description: Сервис на Node.js 24 и Express 5 с CI и деплоем через GitOps
+  tags: [service, nodejs]
+spec:
+  owner: group:platform
+  type: service
+  parameters:
+    - title: Параметры сервиса
+      required: [name, description, owner]
+      properties:
+        name:
+          title: Имя сервиса
+          type: string
+          pattern: '^[a-z]([a-z0-9-]*[a-z0-9])?$'
+          minLength: 3
+          maxLength: 40
+          ui:autofocus: true
+          ui:help: строчные латинские буквы, цифры и дефис; начинается с буквы; до 40 символов
+        description:
+          title: Описание
+          type: string
+          minLength: 1
+        owner:
+          title: Владелец
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+  steps:
+    - id: check
+      name: Проверка имени и конфликтов
+      action: platform:gitops:check
+      input:
+        name: ${{ parameters.name }}
+        owner: limp-idp-prj
+    - id: fetch
+      name: Генерация кода из skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton
+        copyWithoutTemplating:
+          - .github/workflows/*
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          repoOwner: limp-idp-prj
+    - id: publish
+      name: Создание репозитория
+      action: publish:github
+      input:
+        repoUrl: github.com?owner=limp-idp-prj&repo=${{ parameters.name }}
+        defaultBranch: main
+        repoVisibility: public
+        protectDefaultBranch: false
+        description: ${{ parameters.description }}
+    - id: register-gitops
+      name: Регистрация в GitOps
+      action: platform:gitops:register
+      input:
+        name: ${{ parameters.name }}
+        imageRepository: ghcr.io/limp-idp-prj/${{ parameters.name }}
+    - id: register
+      name: Регистрация в каталоге
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+  output:
+    links:
+      - title: Репозиторий
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Каталог
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}
+      - title: Сервис
+        url: ${{ steps['register-gitops'].output.serviceUrl }}
+      - title: Коммит в GitOps
+        url: ${{ steps['register-gitops'].output.commitUrl }}

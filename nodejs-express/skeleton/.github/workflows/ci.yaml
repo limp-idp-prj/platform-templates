@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - name: Вычислить имя образа
+        id: vars
+        run: |
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          name="$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')"
+          echo "image=ghcr.io/${owner}/${name}" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.vars.outputs.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      NAME: ${{ github.event.repository.name }}
+      TAG: ${{ github.sha }}
+      YQ_VERSION: v4.44.3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ vars.GITOPS_REPO || 'platform-gitops' }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+      - name: Установить yq
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+      - name: Обновить тег образа в GitOps-репозитории
+        working-directory: gitops
+        run: |
+          git config user.name "platform-ci"
+          git config user.email "platform-ci@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase origin main
+            ./scripts/bump-image.sh "$NAME" "$TAG"
+            git add "apps/$NAME/values.yaml"
+            git commit -m "chore($NAME): image $TAG" || { echo "нечего коммитить"; exit 0; }
+            git push origin HEAD:main && exit 0
+            echo "push не удался (попытка $attempt), повтор"
+            git reset --hard origin/main
+            sleep $((attempt * 2))
+          done
+          echo "не удалось отправить изменение" >&2
+          exit 1

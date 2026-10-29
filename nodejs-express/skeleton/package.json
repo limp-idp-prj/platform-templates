@@ -1,0 +1,22 @@
+{
+  "name": "${{ values.name }}",
+  "version": "1.0.0",
+  "description": "${{ values.description }}",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^16.0.0",
+    "supertest": "^7.0.0"
+  }
+}
